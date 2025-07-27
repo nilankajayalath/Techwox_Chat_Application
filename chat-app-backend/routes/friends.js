@@ -1,12 +1,12 @@
-// backend/routes/friends.js
 const express = require("express");
 const router = express.Router();
-const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
-const User = require("../models/User");
-const Friend = require("../models/Friend"); // ✅ Your Friend model
+const nodemailer = require("nodemailer");
 
-// ✅ Middleware to authenticate JWT
+const User = require("../models/User");
+const Friend = require("../models/Friend");
+
+// Middleware to authenticate JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -19,32 +19,44 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ✅ POST /api/friends/invite — Send Invite + Save as "pending"
+// 📩 SEND FRIEND INVITE & SAVE TO DB
 router.post("/invite", authenticateToken, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ message: "Email is required" });
 
   try {
-    const user = await User.findById(req.user.userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    const sender = await User.findById(req.user.userId);
+    const receiver = await User.findOne({ email });
 
-    const friend = await User.findOne({ email });
-    if (!friend) return res.status(404).json({ message: "Friend user not found" });
+    if (!sender || !receiver) {
+      return res.status(404).json({ message: "User or receiver not found" });
+    }
 
+    // Prevent self-invite
+    if (sender._id.equals(receiver._id)) {
+      return res.status(400).json({ message: "You cannot invite yourself." });
+    }
+
+    // Prevent duplicate or already accepted invites
     const existing = await Friend.findOne({
-      user: user._id,
-      friend: friend._id,
+      user: sender._id,
+      friend: receiver._id,
     });
-    if (existing) return res.status(400).json({ message: "Already invited or friends" });
 
-    const newFriend = new Friend({
-      user: user._id,
-      friend: friend._id,
+    if (existing) {
+      return res.status(400).json({ message: "Already invited or friends" });
+    }
+
+    // Save the pending friend request to MongoDB
+    const friendInvite = new Friend({
+      user: sender._id,
+      friend: receiver._id,
       status: "pending",
     });
-    await newFriend.save();
 
-    // Send Email
+    await friendInvite.save();
+
+    // OPTIONAL: Send invitation email
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 587,
@@ -56,30 +68,42 @@ router.post("/invite", authenticateToken, async (req, res) => {
     });
 
     const mailOptions = {
-      from: `"Chatme - ${user.username}" <${process.env.SMTP_USER}>`,
-      to: email,
-      replyTo: user.email,
-      subject: `${user.username} invited you to Chatme!`,
+      from: `"Chatme - ${sender.username}" <${process.env.SMTP_USER}>`,
+      to: receiver.email,
+      subject: `${sender.username} invited you to Chatme!`,
       html: `
-        <p>${user.username} (${user.email}) invited you to join Chatme 🚀</p>
-        <p>Click the link below to register:</p>
+        <h3>You've got a new friend invite on Chatme!</h3>
+        <p><strong>Sender:</strong> ${sender.username} (${sender.email})</p>
+        ${
+          sender.fullName
+            ? `<p><strong>Full Name:</strong> ${sender.fullName}</p>`
+            : ""
+        }
+        <p>Click below to register and connect:</p>
         <a href="http://localhost:3000/register">Join Chatme</a>
       `,
     };
 
     await transporter.sendMail(mailOptions);
 
-    return res.status(200).json({ message: `Invite sent to ${email} and saved to DB` });
+    return res.status(200).json({
+      message: "Invite sent and saved to DB",
+      sender: {
+        id: sender._id,
+        username: sender.username,
+        email: sender.email,
+        fullName: sender.fullName || null,
+      },
+    });
   } catch (error) {
-    console.error("Invite error:", error);
+    console.error("Error sending invite:", error);
     return res.status(500).json({ message: "Failed to send invite" });
   }
 });
 
-// ✅ PUT /api/friends/accept — Accept Invitation
+// ✅ ACCEPT FRIEND INVITE
 router.put("/accept", authenticateToken, async (req, res) => {
   const { fromUserId } = req.body;
-
   if (!fromUserId) {
     return res.status(400).json({ message: "fromUserId is required" });
   }
@@ -87,23 +111,24 @@ router.put("/accept", authenticateToken, async (req, res) => {
   try {
     const currentUserId = req.user.userId;
 
-    const friendRequest = await Friend.findOneAndUpdate(
+    // Update invite to accepted
+    const updated = await Friend.findOneAndUpdate(
       { user: fromUserId, friend: currentUserId, status: "pending" },
       { status: "accepted" },
       { new: true }
     );
 
-    if (!friendRequest) {
-      return res.status(404).json({ message: "Friend request not found" });
+    if (!updated) {
+      return res.status(404).json({ message: "No pending invite found" });
     }
 
-    // Create reciprocal record if it doesn’t already exist
-    const alreadyExists = await Friend.findOne({
+    // Add reciprocal friendship if not already
+    const reciprocal = await Friend.findOne({
       user: currentUserId,
       friend: fromUserId,
     });
 
-    if (!alreadyExists) {
+    if (!reciprocal) {
       await new Friend({
         user: currentUserId,
         friend: fromUserId,
@@ -113,8 +138,22 @@ router.put("/accept", authenticateToken, async (req, res) => {
 
     return res.status(200).json({ message: "Friend request accepted" });
   } catch (err) {
-    console.error("Accept friend error:", err);
-    return res.status(500).json({ message: "Failed to accept friend request" });
+    console.error("Error accepting invite:", err);
+    return res.status(500).json({ message: "Failed to accept invite" });
+  }
+});
+
+// ✅ GET ACCEPTED FRIENDS LIST
+router.get("/:userId", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const friends = await Friend.find({ user: userId, status: "accepted" })
+      .populate("friend", "username email profileImage");
+
+    return res.status(200).json({ friends });
+  } catch (err) {
+    console.error("Error fetching friends:", err);
+    return res.status(500).json({ message: "Failed to fetch friends" });
   }
 });
 

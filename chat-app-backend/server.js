@@ -10,10 +10,11 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const usersRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
-const friendsRoutes = require('./routes/friends');
+const friendsRoutes = require("./routes/friends");
 
 const app = express();
 const server = http.createServer(app);
+
 
 // Middleware
 app.use(cors());
@@ -22,7 +23,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
-app.use('/api/friends', friendsRoutes);
+app.use("/api/friends", friendsRoutes);
 
 // Serve profile images
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
