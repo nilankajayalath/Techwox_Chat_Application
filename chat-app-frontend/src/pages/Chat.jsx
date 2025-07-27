@@ -45,8 +45,6 @@ function Chat({ socket }) {
 
       socket.on("receive_invite", ({ from }) => {
         setIncomingInvite(from);
-        // Optionally open notification panel automatically:
-        // setNotifPanelOpen(true);
       });
 
       socket.on("invite_accepted", ({ by }) => {
@@ -124,6 +122,7 @@ function Chat({ socket }) {
     }
   };
 
+  // ✅ Updated to include confirmation before sending invite
   const startChatWithUser = async (friendId) => {
     try {
       const token = localStorage.getItem("token");
@@ -132,6 +131,10 @@ function Chat({ socket }) {
       });
 
       const friend = res.data.user;
+
+      const confirmSend = window.confirm(`Send chat invitation to ${friend.username}?`);
+      if (!confirmSend) return;
+
       socket.emit("send_invite", {
         from: { id: user._id, username: user.username },
         to: friend._id,
@@ -146,7 +149,6 @@ function Chat({ socket }) {
 
   const toggleDropdown = () => setDropdownOpen((prev) => !prev);
 
-  // Close dropdown if clicked outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -161,7 +163,6 @@ function Chat({ socket }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [dropdownOpen]);
 
-  // Close notification panel if clicked outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
@@ -211,8 +212,6 @@ function Chat({ socket }) {
                 className="w-10 h-10 rounded-full cursor-pointer object-cover border-2 border-blue-500"
                 onClick={toggleDropdown}
               />
-
-              {/* Notification Bell Icon */}
               <button
                 className="relative text-white hover:text-blue-400 focus:outline-none"
                 aria-label="Notifications"
@@ -220,13 +219,10 @@ function Chat({ socket }) {
                 style={{ display: "flex", alignItems: "center" }}
               >
                 <Bell className="w-6 h-6" />
-                {/* Red dot if there is an incoming invite */}
                 {incomingInvite && (
                   <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-600"></span>
                 )}
               </button>
-
-              {/* Dropdown menu */}
               {dropdownOpen && (
                 <div className="absolute right-0 mt-12 w-40 bg-white text-black rounded shadow-lg p-2 z-10">
                   <p className="text-sm font-semibold mb-2">{user.username}</p>
@@ -261,7 +257,6 @@ function Chat({ socket }) {
         </nav>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-grow bg-gray-900 p-6 overflow-auto">
         {activeTab === null && user && (
           <div className="flex flex-col items-center justify-center h-full text-center">
@@ -273,7 +268,6 @@ function Chat({ socket }) {
         {activeTab === "inviteFriends" && (
           <div>
             <h1 className="text-3xl font-bold mb-4">Invite or Chat with Friends</h1>
-
             <div className="mb-4 flex">
               <input
                 type="email"
@@ -343,7 +337,6 @@ function Chat({ socket }) {
         {activeTab === "groupCalls" && (
           <div>
             <h1 className="text-3xl font-bold mb-4">Group Calls</h1>
-            {/* Placeholder for group calls content */}
             <p className="text-gray-400">Group calls functionality coming soon.</p>
           </div>
         )}
@@ -359,7 +352,6 @@ function Chat({ socket }) {
                   <li
                     key={chat._id}
                     className="bg-gray-800 p-2 rounded cursor-pointer hover:bg-gray-700 flex items-center space-x-3"
-                    // Add your onClick to open chat here
                   >
                     <img
                       src={`http://localhost:5000/uploads/${chat.friend.profileImage}`}
@@ -375,7 +367,6 @@ function Chat({ socket }) {
         )}
       </main>
 
-      {/* Notification Panel */}
       <div
         ref={notifPanelRef}
         className={`fixed top-0 right-0 h-full w-80 bg-gray-800 shadow-lg z-50 transform transition-transform duration-300 flex flex-col ${
@@ -394,7 +385,6 @@ function Chat({ socket }) {
         </div>
 
         <div className="flex-grow overflow-y-auto p-4 space-y-4">
-          {/* Incoming invites */}
           {incomingInvite ? (
             <div className="bg-gray-700 rounded p-3">
               <p className="mb-2">
@@ -426,11 +416,9 @@ function Chat({ socket }) {
           ) : (
             <p className="text-gray-400">No new invitations.</p>
           )}
-          {/* Additional notifications can go here */}
         </div>
       </div>
 
-      {/* Glow animation */}
       <style>{`
         @keyframes glow {
           0% { text-shadow: 0 0 5px #3b82f6; }

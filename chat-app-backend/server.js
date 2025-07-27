@@ -33,7 +33,7 @@ const io = new Server(server, {
   }
 });
 
-// User to socket mapping
+// Map to track connected users
 const connectedUsers = new Map(); // userId => socket.id
 
 // Handle socket connections
@@ -46,24 +46,24 @@ io.on('connection', (socket) => {
     console.log(`✅ Registered user: ${userId} with socket: ${socket.id}`);
   });
 
-  // Handle public message (optional legacy)
+  // Handle public message (optional)
   socket.on('send-message', (message) => {
-    console.log('📩 Message received:', message);
-    io.emit('receive-message', message); // broadcast to all
+    console.log('📩 Public message received:', message);
+    io.emit('receive-message', message); // Broadcast to all users
   });
 
-  // Handle invite from user A to user B
+  // Handle invite from one user to another
   socket.on('send_invite', ({ from, to }) => {
     const toSocketId = connectedUsers.get(to);
     if (toSocketId) {
       io.to(toSocketId).emit('receive_invite', { from });
       console.log(`📨 Invite sent from ${from.username} to ${to}`);
     } else {
-      console.log(`⚠️ User ${to} not connected`);
+      console.log(`⚠️ Invite failed — user ${to} not connected`);
     }
   });
 
-  // Handle accept invite
+  // Handle acceptance of an invite
   socket.on('accept_invite', ({ from, to }) => {
     const fromSocketId = connectedUsers.get(from);
     if (fromSocketId) {
@@ -72,18 +72,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle private messages
+  // Handle private message sending
   socket.on('send-private-message', ({ to, message }) => {
     const toSocketId = connectedUsers.get(to);
     if (toSocketId) {
       io.to(toSocketId).emit('receive-private-message', message);
       console.log(`📬 Private message sent from ${message.senderId} to ${to}`);
     } else {
-      console.log(`⚠️ User ${to} not connected`);
+      console.log(`⚠️ Private message failed — user ${to} not connected`);
     }
   });
 
-  // Handle disconnection
+  // Handle user disconnection
   socket.on('disconnect', () => {
     for (const [userId, sockId] of connectedUsers.entries()) {
       if (sockId === socket.id) {
