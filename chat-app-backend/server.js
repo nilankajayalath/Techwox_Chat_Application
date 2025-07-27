@@ -10,60 +10,55 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const usersRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
+const friendsRoutes = require('./routes/friends');
 
-const app = express();  // Create the express app **before** using it
-const server = http.createServer(app); // Create HTTP server for socket.io
+const app = express();
+const server = http.createServer(app);
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// API Routes
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/friends', friendsRoutes);
 
-// Static files
+// Serve profile images
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Socket.IO setup
+// Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:3000', // Your frontend origin
+    origin: 'http://localhost:3000',
     methods: ['GET', 'POST']
   }
 });
 
-// Map to track connected users
-const connectedUsers = new Map(); // userId => socket.id
+// Map to track userId -> socketId
+const connectedUsers = new Map();
 
-// Handle socket connections
 io.on('connection', (socket) => {
   console.log('🔌 New client connected:', socket.id);
 
-  // Register user and map userId to socket
+  // Register user
   socket.on('register', (userId) => {
     connectedUsers.set(userId, socket.id);
     console.log(`✅ Registered user: ${userId} with socket: ${socket.id}`);
   });
 
-  // Handle public message (optional)
-  socket.on('send-message', (message) => {
-    console.log('📩 Public message received:', message);
-    io.emit('receive-message', message); // Broadcast to all users
-  });
-
-  // Handle invite from one user to another
+  // Handle invite
   socket.on('send_invite', ({ from, to }) => {
-    const toSocketId = connectedUsers.get(to);
+    const toSocketId = connectedUsers.get(to.id); // ✅ use to.id
     if (toSocketId) {
       io.to(toSocketId).emit('receive_invite', { from });
-      console.log(`📨 Invite sent from ${from.username} to ${to}`);
+      console.log(`📨 Invite sent from ${from.username} to ${to.username}`);
     } else {
-      console.log(`⚠️ Invite failed — user ${to} not connected`);
+      console.log(`⚠️ Invite failed — user ${to.username} not connected`);
     }
   });
 
-  // Handle acceptance of an invite
+  // Accept invite
   socket.on('accept_invite', ({ from, to }) => {
     const fromSocketId = connectedUsers.get(from);
     if (fromSocketId) {
@@ -72,7 +67,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle private message sending
+  // Private messages
   socket.on('send-private-message', ({ to, message }) => {
     const toSocketId = connectedUsers.get(to);
     if (toSocketId) {
@@ -83,7 +78,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle user disconnection
+  // Disconnect cleanup
   socket.on('disconnect', () => {
     for (const [userId, sockId] of connectedUsers.entries()) {
       if (sockId === socket.id) {
@@ -95,11 +90,11 @@ io.on('connection', (socket) => {
   });
 });
 
-// Debug environment variables
+// Debug
 console.log("Loaded env keys:", Object.keys(process.env));
 console.log("ATLAS_URI:", process.env.ATLAS_URI);
 
-// Connect to MongoDB
+// MongoDB
 mongoose.connect(process.env.ATLAS_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
@@ -109,15 +104,13 @@ mongoose.connect(process.env.ATLAS_URI, {
 
   const db = mongoose.connection.db;
   const collections = await db.listCollections().toArray();
-  console.log('📦 Collections in the connected database:');
+  console.log('📦 Collections:');
   collections.forEach(col => console.log(` - ${col.name}`));
 
   const admin = db.admin();
   const result = await admin.listDatabases();
-  console.log('🗃️ Databases on this cluster:');
-  result.databases.forEach(db => {
-    console.log(` - ${db.name}`);
-  });
+  console.log('🗃️ Databases:');
+  result.databases.forEach(db => console.log(` - ${db.name}`));
 })
 .catch((err) => console.error('❌ MongoDB connection error:', err));
 

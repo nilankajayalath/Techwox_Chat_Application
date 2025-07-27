@@ -126,26 +126,31 @@ function Chat({ socket }) {
   const startChatWithUser = async (friendId) => {
     try {
       const token = localStorage.getItem("token");
+  
+      // 1. Get full friend data
       const res = await axios.get(`http://localhost:5000/api/users/${friendId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
+  
       const friend = res.data.user;
-
+  
+      // 2. Confirm invitation
       const confirmSend = window.confirm(`Send chat invitation to ${friend.username}?`);
       if (!confirmSend) return;
-
+  
+      // 3. Emit invite over socket
       socket.emit("send_invite", {
         from: { id: user._id, username: user.username },
-        to: friend._id,
+        to: { id: friend._id, username: friend.username },
       });
-
+  
       alert(`Invite sent to ${friend.username}`);
     } catch (err) {
-      console.error("Start chat error:", err);
-      alert("Could not send chat invite.");
+      console.error("Start chat error:", err?.response?.data || err.message || err);
+      alert(err?.response?.data?.message || "Could not send chat invite.");
     }
   };
+  
 
   const toggleDropdown = () => setDropdownOpen((prev) => !prev);
 
@@ -390,20 +395,31 @@ function Chat({ socket }) {
               <p className="mb-2">
                 <strong>{incomingInvite.username}</strong> invited you to chat.
               </p>
-              <button
-                onClick={() => {
-                  socket.emit("accept_invite", {
-                    from: incomingInvite.id,
-                    to: { id: user._id, username: user.username },
-                  });
-                  setIncomingInvite(null);
-                  setActiveTab("privateMessages");
-                  setNotifPanelOpen(false);
-                }}
-                className="bg-blue-600 px-3 py-1 rounded mr-2 hover:bg-blue-700"
-              >
-                Accept
-              </button>
+              onClick={async () => {
+  try {
+    const token = localStorage.getItem("token");
+    // Call backend to update friend status
+    await axios.put("http://localhost:5000/api/friends/accept", {
+      fromUserId: incomingInvite.id,
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    // Then notify the sender via socket
+    socket.emit("accept_invite", {
+      from: incomingInvite.id,
+      to: { id: user._id, username: user.username },
+    });
+
+    setIncomingInvite(null);
+    setActiveTab("privateMessages");
+    setNotifPanelOpen(false);
+  } catch (err) {
+    console.error("Failed to accept invite:", err);
+    alert("Failed to accept invite");
+  }
+}}
+
               <button
                 onClick={() => {
                   setIncomingInvite(null);
