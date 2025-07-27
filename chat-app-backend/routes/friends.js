@@ -10,44 +10,39 @@ const Friend = require("../models/Friend");
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
-  if (!token) return res.sendStatus(401);
+  if (!token) return res.status(401).json({ message: "No token provided" });
 
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err) {
+      console.error("JWT verification failed:", err);
+      return res.status(403).json({ message: "Invalid token" });
+    }
     req.user = user;
     next();
   });
 };
 
-// 📩 SEND FRIEND INVITE & SAVE TO DB
+// SEND FRIEND INVITE & SAVE TO DB
 router.post("/invite", authenticateToken, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ message: "Email is required" });
 
   try {
+    // Fetch sender & receiver
     const sender = await User.findById(req.user.userId);
-    const receiver = await User.findOne({ email });
+    if (!sender) return res.status(404).json({ message: "Sender not found" });
 
-    if (!sender || !receiver) {
-      return res.status(404).json({ message: "User or receiver not found" });
-    }
+    const receiver = await User.findOne({ email });
+    if (!receiver) return res.status(404).json({ message: "Receiver not found" });
 
     // Prevent self-invite
     if (sender._id.equals(receiver._id)) {
       return res.status(400).json({ message: "You cannot invite yourself." });
     }
 
-    // Prevent duplicate or already accepted invites
-    const existing = await Friend.findOne({
-      user: sender._id,
-      friend: receiver._id,
-    });
+    // **Removed duplicate invite check to allow duplicates**
 
-    if (existing) {
-      return res.status(400).json({ message: "Already invited or friends" });
-    }
-
-    // Save the pending friend request to MongoDB
+    // Create and save new friend invite
     const friendInvite = new Friend({
       user: sender._id,
       friend: receiver._id,
@@ -55,8 +50,9 @@ router.post("/invite", authenticateToken, async (req, res) => {
     });
 
     await friendInvite.save();
+    console.log("Friend invite saved:", friendInvite);
 
-    // OPTIONAL: Send invitation email
+    // Send invitation email (optional)
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 587,
@@ -72,7 +68,7 @@ router.post("/invite", authenticateToken, async (req, res) => {
       to: receiver.email,
       subject: `${sender.username} invited you to Chatme!`,
       html: `
-        <h3>You've got a new friend invite on Chatme!</h3>
+        <h3>You've got a new friend invite from your friend to join Chatme!</h3>
         <p><strong>Sender:</strong> ${sender.username} (${sender.email})</p>
         ${
           sender.fullName
@@ -96,17 +92,15 @@ router.post("/invite", authenticateToken, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error sending invite:", error);
+    console.error("Error in /invite:", error);
     return res.status(500).json({ message: "Failed to send invite" });
   }
 });
 
-// ✅ ACCEPT FRIEND INVITE
+// ACCEPT FRIEND INVITE
 router.put("/accept", authenticateToken, async (req, res) => {
   const { fromUserId } = req.body;
-  if (!fromUserId) {
-    return res.status(400).json({ message: "fromUserId is required" });
-  }
+  if (!fromUserId) return res.status(400).json({ message: "fromUserId is required" });
 
   try {
     const currentUserId = req.user.userId;
@@ -122,7 +116,7 @@ router.put("/accept", authenticateToken, async (req, res) => {
       return res.status(404).json({ message: "No pending invite found" });
     }
 
-    // Add reciprocal friendship if not already
+    // Add reciprocal friendship if not exists
     const reciprocal = await Friend.findOne({
       user: currentUserId,
       friend: fromUserId,
@@ -143,7 +137,7 @@ router.put("/accept", authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ GET ACCEPTED FRIENDS LIST
+// GET ACCEPTED FRIENDS LIST
 router.get("/:userId", authenticateToken, async (req, res) => {
   try {
     const userId = req.params.userId;
