@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import heroImg from "../assets/chat-hero-ai.jpg";
-import featureImg from "../assets/chat-feature-ai.jpg";
+import heroImg from "../images/landing hero image.png";
+import featureImg from "../images/landing feature search image.png";
 
 const LandingPage = () => {
   return (
