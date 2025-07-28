@@ -8,7 +8,11 @@ const LandingPage = () => {
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-[#0f172a] to-[#1e293b] text-white">
       {/* Header */}
       <header className="flex justify-between items-center px-8 py-6 shadow-lg">
-        <h1 className="text-3xl font-bold tracking-wide">Chatme</h1>
+        <h1 className="text-5xl font-bold tracking-wide" style={{
+              animation: "glow 2s ease-in-out infinite",
+              textShadow:
+                "0 0 10px #3b82f6, 0 0 20px #3b82f6, 0 0 30px #3b82f6",
+            }}>Chatme</h1>
         <div className="space-x-4">
           <Link to="/login">
             <button className="border border-white text-white px-4 py-2 rounded hover:bg-white hover:text-black transition">
@@ -83,9 +87,9 @@ const LandingPage = () => {
       </main>
 
       {/* Footer */}
-      <footer className="text-center py-8 text-gray-500 text-sm bg-[#0f172a]">
-        © {new Date().getFullYear()} Chatme. All rights reserved.
-      </footer>
+      <footer className="text-center py-8 text-gray-500 text-sm bg-[#0f172a] shadow-[0_-4px_10px_rgba(0,0,0,0.3)]">
+  © {new Date().getFullYear()} Chatme. All rights reserved.
+</footer>
     </div>
   );
 };
