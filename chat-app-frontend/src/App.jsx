@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Login from './pages/Login';
+import Landingpage from './pages/Landing';
 import Chat from './pages/Chat';
 import Register from './pages/Register';
 import './App.css';
@@ -29,9 +30,9 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Login />} />
+        <Route path="/" element={<Landingpage />} /> {/* 👈 Changed from Login to Landingpage */}
+        <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        {/* ✅ Pass socket as a prop to Chat page */}
         <Route path="/chat" element={<Chat socket={socket} user={user} />} />
       </Routes>
     </Router>
