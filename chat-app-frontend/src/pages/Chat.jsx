@@ -22,21 +22,22 @@ function Chat({ socket }) {
     const token = localStorage.getItem("token");
     if (!token) {
       navigate("/");
-    } else {
-      axios
-        .get("http://localhost:5000/api/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        .then((res) => {
-          setUser(res.data.user);
-          fetchFriends(res.data.user._id, token);
-          fetchChats(res.data.user._id, token);
-        })
-        .catch((err) => {
-          console.error("Auth error:", err);
-          navigate("/");
-        });
+      return;
     }
+
+    axios
+      .get("http://localhost:5000/api/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then((res) => {
+        setUser(res.data.user);
+        fetchFriends(res.data.user._id, token);
+        fetchChats(res.data.user._id, token);
+      })
+      .catch((err) => {
+        console.error("Auth error:", err);
+        navigate("/");
+      });
   }, [navigate]);
 
   useEffect(() => {
@@ -45,6 +46,7 @@ function Chat({ socket }) {
 
       socket.on("receive_invite", ({ from }) => {
         setIncomingInvite(from);
+        setNotifPanelOpen(true);
       });
 
       socket.on("invite_accepted", ({ by }) => {
@@ -82,23 +84,25 @@ function Chat({ socket }) {
     }
   };
 
+  // Updated inviteFriend to send invitation email through backend API
   const inviteFriend = async () => {
     if (!friendEmail || !user) return;
     const token = localStorage.getItem("token");
     try {
       await axios.post(
-        "http://localhost:5000/api/friends/invite",
+        "http://localhost:5000/api/friends/invite-email", // Backend email invite endpoint
         {
-          email: friendEmail,
-          senderEmail: user.email,
+          toEmail: friendEmail,
           senderName: user.username,
+          senderEmail: user.email,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      alert(`Invite sent to ${friendEmail}`);
+      alert(`Invitation email sent to ${friendEmail}`);
       setFriendEmail("");
+      fetchFriends(user._id, token); // refresh friend list if needed
     } catch (err) {
-      alert("Failed to send invite");
+      alert("Failed to send invitation email");
       console.error(err);
     }
   };
@@ -122,35 +126,60 @@ function Chat({ socket }) {
     }
   };
 
-  // ✅ Updated to include confirmation before sending invite
   const startChatWithUser = async (friendId) => {
     try {
       const token = localStorage.getItem("token");
-  
-      // 1. Get full friend data
+
       const res = await axios.get(`http://localhost:5000/api/users/${friendId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-  
+
       const friend = res.data.user;
-  
-      // 2. Confirm invitation
+
       const confirmSend = window.confirm(`Send chat invitation to ${friend.username}?`);
       if (!confirmSend) return;
-  
-      // 3. Emit invite over socket
+
       socket.emit("send_invite", {
         from: { id: user._id, username: user.username },
         to: { id: friend._id, username: friend.username },
       });
-  
+
       alert(`Invite sent to ${friend.username}`);
     } catch (err) {
       console.error("Start chat error:", err?.response?.data || err.message || err);
       alert(err?.response?.data?.message || "Could not send chat invite.");
     }
   };
-  
+
+  const acceptInvite = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.put(
+        "http://localhost:5000/api/friends/accept",
+        { fromUserId: incomingInvite.id },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      socket.emit("accept_invite", {
+        from: incomingInvite.id,
+        to: { id: user._id, username: user.username },
+      });
+
+      setIncomingInvite(null);
+      setActiveTab("privateMessages");
+      setNotifPanelOpen(false);
+
+      fetchFriends(user._id, token);
+      fetchChats(user._id, token);
+    } catch (err) {
+      console.error("Failed to accept invite:", err);
+      alert("Failed to accept invite");
+    }
+  };
+
+  const declineInvite = () => {
+    setIncomingInvite(null);
+  };
 
   const toggleDropdown = () => setDropdownOpen((prev) => !prev);
 
@@ -202,8 +231,7 @@ function Chat({ socket }) {
             className="text-3xl font-bold text-blue-400 relative z-10 cursor-pointer"
             style={{
               animation: "glow 2s ease-in-out infinite",
-              textShadow:
-                "0 0 10px #3b82f6, 0 0 20px #3b82f6, 0 0 30px #3b82f6",
+              textShadow: "0 0 10px #3b82f6, 0 0 20px #3b82f6, 0 0 30px #3b82f6",
             }}
           >
             Chatme
@@ -262,7 +290,9 @@ function Chat({ socket }) {
         </nav>
       </aside>
 
+      {/* Main Content */}
       <main className="flex-grow bg-gray-900 p-6 overflow-auto">
+        {/* Welcome Screen */}
         {activeTab === null && user && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <h1 className="text-4xl font-bold mb-4">Welcome, {user.username}!</h1>
@@ -270,6 +300,7 @@ function Chat({ socket }) {
           </div>
         )}
 
+        {/* Invite Friends Tab */}
         {activeTab === "inviteFriends" && (
           <div>
             <h1 className="text-3xl font-bold mb-4">Invite or Chat with Friends</h1>
@@ -300,7 +331,7 @@ function Chat({ socket }) {
             {searchResults.length > 0 && (
               <div className="mb-4">
                 <h2 className="text-xl mb-2">Search Results</h2>
-                <ul className="space-y-2">
+                <ul className="space-y-2 max-h-64 overflow-auto">
                   {searchResults.map((result) => (
                     <li
                       key={result._id}
@@ -322,9 +353,12 @@ function Chat({ socket }) {
             {friends.length > 0 && (
               <div>
                 <h2 className="text-xl mb-2">Your Friends</h2>
-                <ul className="space-y-2">
+                <ul className="space-y-2 max-h-64 overflow-auto">
                   {friends.map((friend) => (
-                    <li key={friend._id} className="bg-gray-800 p-2 rounded flex items-center space-x-3">
+                    <li
+                      key={friend._id}
+                      className="bg-gray-800 p-2 rounded flex items-center space-x-3"
+                    >
                       <img
                         src={`http://localhost:5000/uploads/${friend.profileImage}`}
                         alt={`${friend.username} profile`}
@@ -339,6 +373,7 @@ function Chat({ socket }) {
           </div>
         )}
 
+        {/* Group Calls Tab */}
         {activeTab === "groupCalls" && (
           <div>
             <h1 className="text-3xl font-bold mb-4">Group Calls</h1>
@@ -346,13 +381,14 @@ function Chat({ socket }) {
           </div>
         )}
 
+        {/* Private Messages Tab */}
         {activeTab === "privateMessages" && (
           <div>
             <h1 className="text-3xl font-bold mb-4">Private Messages</h1>
             {chats.length === 0 ? (
               <p className="text-gray-400">No private messages yet.</p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-2 max-h-96 overflow-auto">
                 {chats.map((chat) => (
                   <li
                     key={chat._id}
@@ -372,6 +408,7 @@ function Chat({ socket }) {
         )}
       </main>
 
+      {/* Notifications Panel */}
       <div
         ref={notifPanelRef}
         className={`fixed top-0 right-0 h-full w-80 bg-gray-800 shadow-lg z-50 transform transition-transform duration-300 flex flex-col ${
@@ -391,43 +428,24 @@ function Chat({ socket }) {
 
         <div className="flex-grow overflow-y-auto p-4 space-y-4">
           {incomingInvite ? (
-            <div className="bg-gray-700 rounded p-3">
-              <p className="mb-2">
+            <div className="bg-gray-700 rounded p-3 space-y-2">
+              <p>
                 <strong>{incomingInvite.username}</strong> invited you to chat.
               </p>
-              onClick={async () => {
-  try {
-    const token = localStorage.getItem("token");
-    // Call backend to update friend status
-    await axios.put("http://localhost:5000/api/friends/accept", {
-      fromUserId: incomingInvite.id,
-    }, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    // Then notify the sender via socket
-    socket.emit("accept_invite", {
-      from: incomingInvite.id,
-      to: { id: user._id, username: user.username },
-    });
-
-    setIncomingInvite(null);
-    setActiveTab("privateMessages");
-    setNotifPanelOpen(false);
-  } catch (err) {
-    console.error("Failed to accept invite:", err);
-    alert("Failed to accept invite");
-  }
-}}
-
-              <button
-                onClick={() => {
-                  setIncomingInvite(null);
-                }}
-                className="bg-gray-600 px-3 py-1 rounded hover:bg-gray-500"
-              >
-                Decline
-              </button>
+              <div className="flex space-x-3">
+                <button
+                  onClick={acceptInvite}
+                  className="bg-blue-600 px-3 py-1 rounded hover:bg-blue-700"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={declineInvite}
+                  className="bg-gray-600 px-3 py-1 rounded hover:bg-gray-500"
+                >
+                  Decline
+                </button>
+              </div>
             </div>
           ) : (
             <p className="text-gray-400">No new invitations.</p>
