@@ -8,10 +8,13 @@ const { Server } = require('socket.io');
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+// Routes
 const usersRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
 const friendsRoutes = require('./routes/friends');
 const notificationRoutes = require('./routes/notifications');
+
+// Models
 const Notification = require('./models/Notification');
 
 const app = express();
@@ -21,10 +24,10 @@ const server = http.createServer(app);
 app.use(cors());
 app.use(express.json());
 
-// Serve profile images
+// Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Routes
+// API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/friends', friendsRoutes);
@@ -37,27 +40,29 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
   },
 });
+
 app.set('io', io);
 
-// Track connected users
+// In-memory map of connected users (userId -> socketId)
 const connectedUsers = new Map();
 
 io.on('connection', (socket) => {
   console.log('🔌 New client connected:', socket.id);
 
+  // Register user by ID
   socket.on('register', (userId) => {
     connectedUsers.set(userId, socket.id);
     console.log(`✅ Registered user: ${userId} with socket: ${socket.id}`);
   });
 
+  // Handle chat invite
   socket.on('send_invite', async ({ from, to }) => {
     const toSocketId = connectedUsers.get(to.id);
 
-    // ✅ Save notification to DB
     try {
       await Notification.create({
-        toUser: to.id,
-        fromUser: from.id,
+        userId: to.id,               // receiver
+        senderId: from.id,           // sender
         type: 'invite',
         message: `${from.username} invited you to chat.`,
       });
@@ -69,10 +74,11 @@ io.on('connection', (socket) => {
         console.log(`📥 ${to.username} not online – stored invite notification only`);
       }
     } catch (err) {
-      console.error('❌ Failed to save notification:', err);
+      console.error('❌ Failed to store notification:', err.message);
     }
   });
 
+  // Handle invite acceptance
   socket.on('accept_invite', ({ from, to }) => {
     const fromSocketId = connectedUsers.get(from);
     if (fromSocketId) {
@@ -81,6 +87,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle private message
   socket.on('send-private-message', ({ to, message }) => {
     const toSocketId = connectedUsers.get(to);
     if (toSocketId) {
@@ -91,6 +98,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle disconnect
   socket.on('disconnect', () => {
     for (const [userId, sockId] of connectedUsers.entries()) {
       if (sockId === socket.id) {
@@ -102,11 +110,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Debug env keys
-console.log("Loaded env keys:", Object.keys(process.env));
-console.log("ATLAS_URI:", process.env.ATLAS_URI);
-
-// MongoDB Connection
+// MongoDB connection
 mongoose.connect(process.env.ATLAS_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -126,7 +130,7 @@ mongoose.connect(process.env.ATLAS_URI, {
   })
   .catch((err) => console.error('❌ MongoDB connection error:', err));
 
-// Start server
+// Start the server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

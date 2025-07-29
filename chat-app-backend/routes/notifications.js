@@ -1,23 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const Notification = require('../models/Notification');
-const authenticateToken = require('../middleware/authenticateToken');
+const authenticateToken = require('../middleware/authenticateToken'); // see step 4
 
+// Get all notifications for user
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const notifications = await Notification.find({ toUser: req.user.id }).sort({ createdAt: -1 });
+    const notifications = await Notification.find({ userId: req.user.id }).sort({ createdAt: -1 }).populate('senderId', 'username');
     res.json({ notifications });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch notifications' });
-  }
-});
-
-router.put('/:id/read', authenticateToken, async (req, res) => {
-  try {
-    await Notification.findByIdAndUpdate(req.params.id, { isRead: true });
-    res.sendStatus(200);
-  } catch {
-    res.status(500).json({ message: 'Failed to update notification' });
+    console.error('Notification fetch error:', err.message);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
