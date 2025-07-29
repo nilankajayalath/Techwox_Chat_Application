@@ -6,7 +6,7 @@ const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const usersRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
@@ -15,42 +15,44 @@ const friendsRoutes = require("./routes/friends");
 const app = express();
 const server = http.createServer(app);
 
-
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve profile images statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use("/api/friends", friendsRoutes);
 
-// Serve profile images
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Socket.IO
+// Socket.IO setup with CORS for your frontend domain
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:3000',
-    methods: ['GET', 'POST']
-  }
+    origin: 'http://localhost:3000', // adjust this to your frontend URL
+    methods: ['GET', 'POST'],
+  },
 });
 
-// Map to track userId -> socketId
+// Make io accessible in routes via req.app.get('io')
+app.set('io', io);
+
+// Map to track userId -> socketId for real-time communication
 const connectedUsers = new Map();
 
 io.on('connection', (socket) => {
   console.log('🔌 New client connected:', socket.id);
 
-  // Register user
+  // Register a logged-in user with their socket ID
   socket.on('register', (userId) => {
     connectedUsers.set(userId, socket.id);
     console.log(`✅ Registered user: ${userId} with socket: ${socket.id}`);
   });
 
-  // Handle invite
+  // Handle sending invite in real-time via socket
   socket.on('send_invite', ({ from, to }) => {
-    const toSocketId = connectedUsers.get(to.id); // ✅ use to.id
+    const toSocketId = connectedUsers.get(to.id);
     if (toSocketId) {
       io.to(toSocketId).emit('receive_invite', { from });
       console.log(`📨 Invite sent from ${from.username} to ${to.username}`);
@@ -59,7 +61,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Accept invite
+  // Handle invite acceptance notification via socket
   socket.on('accept_invite', ({ from, to }) => {
     const fromSocketId = connectedUsers.get(from);
     if (fromSocketId) {
@@ -68,7 +70,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Private messages
+  // Handle private messages between users
   socket.on('send-private-message', ({ to, message }) => {
     const toSocketId = connectedUsers.get(to);
     if (toSocketId) {
@@ -79,7 +81,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Disconnect cleanup
+  // Remove disconnected user from map
   socket.on('disconnect', () => {
     for (const [userId, sockId] of connectedUsers.entries()) {
       if (sockId === socket.id) {
@@ -91,11 +93,11 @@ io.on('connection', (socket) => {
   });
 });
 
-// Debug
+// Debug environment variables loaded
 console.log("Loaded env keys:", Object.keys(process.env));
 console.log("ATLAS_URI:", process.env.ATLAS_URI);
 
-// MongoDB
+// Connect to MongoDB Atlas
 mongoose.connect(process.env.ATLAS_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true

@@ -9,6 +9,7 @@ const User = require('../models/User');
 const Friend = require('../models/Friend');
 const Invite = require('../models/Invite');
 
+// Setup nodemailer transporter for Gmail
 const transporter = nodemailer.createTransport({
   service: 'Gmail',
   auth: {
@@ -17,6 +18,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Middleware to authenticate JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -29,6 +31,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Send invite via email with accept/decline links
 router.post('/invite-email', authenticateToken, async (req, res) => {
   const { toEmail, senderName, senderEmail } = req.body;
 
@@ -40,7 +43,7 @@ router.post('/invite-email', authenticateToken, async (req, res) => {
     const token = uuidv4();
 
     await Invite.create({
-      senderId: req.user.id,
+      senderId: req.user.userId,  // Use userId from JWT payload
       recipientEmail: toEmail,
       token,
     });
@@ -73,6 +76,7 @@ router.post('/invite-email', authenticateToken, async (req, res) => {
   }
 });
 
+// Handle accept/decline invite link click (email)
 router.get('/respond/:token/:action', async (req, res) => {
   const { token, action } = req.params;
 
@@ -121,31 +125,40 @@ router.get('/respond/:token/:action', async (req, res) => {
   }
 });
 
+// Invite registered user via app (real-time socket)
 router.post('/invite', authenticateToken, async (req, res) => {
-  const { email, senderEmail, senderName } = req.body;
+  const { email } = req.body;  // invitee email
+  const senderId = req.user.userId;
 
-  if (!email || !senderEmail || !senderName) {
-    return res.status(400).json({ message: 'Missing required fields' });
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required' });
   }
 
   try {
+    const sender = await User.findById(senderId);
     const recipient = await User.findOne({ email });
-    const sender = await User.findOne({ email: senderEmail });
 
-    if (!recipient || !sender) {
-      return res.status(404).json({ message: 'User not found' });
+    if (!recipient) return res.status(404).json({ message: "User not found" });
+
+    // Emit socket invite event if io available (make sure io is set on app)
+    const io = req.app.get('io');
+    if (io) {
+      io.to(recipient._id.toString()).emit("receive_invite", {
+        from: { id: sender._id, username: sender.username },
+      });
     }
 
-    return res.json({ message: 'Chat invite logic handled (via socket or DB)' });
+    return res.json({ message: "Invite sent via app" });
   } catch (err) {
-    console.error('Chat invite error:', err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Invite error:', err);
+    res.status(500).json({ message: "Invite failed", error: err.message });
   }
 });
 
+// Accept friend invite API endpoint
 router.put('/accept', authenticateToken, async (req, res) => {
   const { fromUserId } = req.body;
-  const toUserId = req.user.id;
+  const toUserId = req.user.userId;
 
   try {
     const alreadyFriends = await Friend.findOne({
@@ -169,6 +182,7 @@ router.put('/accept', authenticateToken, async (req, res) => {
   }
 });
 
+// Get friends list for a user
 router.get('/:userId', authenticateToken, async (req, res) => {
   const userId = req.params.userId;
   try {

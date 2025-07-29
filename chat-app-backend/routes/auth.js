@@ -2,40 +2,37 @@ const express = require('express');
 const multer = require('multer');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
 const path = require('path');
 const fs = require('fs');
+const User = require('../models/User');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'yourSecretKey'; // Best to use .env
 
-// ----------------------
-// Ensure uploads folder exists
-// ----------------------
+// ✅ Use environment variable for JWT
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecurechatappkey123!';
+
+// ✅ Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// ----------------------
-// Multer Storage Config
-// ----------------------
+// ✅ Multer storage configuration
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadsDir); // ✅ Absolute path to uploads/
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
-    const uniqueName = file.fieldname + '-' + Date.now() + ext;
+    const uniqueName = `${file.fieldname}-${Date.now()}${ext}`;
     cb(null, uniqueName);
   }
 });
-
 const upload = multer({ storage });
 
-// ----------------------
-// POST /api/auth/register
-// ----------------------
+// -------------------------
+// ✅ POST /api/auth/register
+// -------------------------
 router.post('/register', upload.single('profileImage'), async (req, res) => {
   try {
     const { email, username, password } = req.body;
@@ -59,7 +56,7 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
       profileImage
     });
 
-    await newUser.save();
+    await newUser.save(); // ✅ saves in users collection
 
     const token = jwt.sign(
       { userId: newUser._id, username: newUser.username },
@@ -84,22 +81,18 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
   }
 });
 
-// ----------------------
-// POST /api/auth/login
-// ----------------------
+// -------------------------
+// ✅ POST /api/auth/login
+// -------------------------
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
     const token = jwt.sign(
       { userId: user._id, username: user.username },
@@ -124,9 +117,9 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ----------------------
-// Auth Middleware for token verification
-// ----------------------
+// -------------------------
+// ✅ Middleware: Verify token
+// -------------------------
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: "No token provided" });
@@ -139,15 +132,17 @@ const authMiddleware = (req, res, next) => {
   });
 };
 
-// ----------------------
-// GET /api/auth/me - Get current user info
-// ----------------------
+// -------------------------
+// ✅ GET /api/auth/me
+// -------------------------
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('-password');
     if (!user) return res.status(404).json({ error: "User not found" });
+
     res.json({ user });
   } catch (err) {
+    console.error("Fetch user error:", err);
     res.status(500).json({ error: "Failed to fetch user" });
   }
 });
