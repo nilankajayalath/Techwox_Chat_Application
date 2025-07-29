@@ -1,3 +1,4 @@
+// routes/friends.js
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
@@ -6,9 +7,8 @@ const { v4: uuidv4 } = require('uuid');
 
 const User = require('../models/User');
 const Friend = require('../models/Friend');
-const Invite = require('../models/Invite'); // <-- Add this
+const Invite = require('../models/Invite');
 
-// ✅ Gmail SMTP configuration from environment variables
 const transporter = nodemailer.createTransport({
   service: 'Gmail',
   auth: {
@@ -17,7 +17,6 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// ✅ Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -30,7 +29,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ✅ Invite via email with accept/decline links
 router.post('/invite-email', authenticateToken, async (req, res) => {
   const { toEmail, senderName, senderEmail } = req.body;
 
@@ -41,7 +39,6 @@ router.post('/invite-email', authenticateToken, async (req, res) => {
   try {
     const token = uuidv4();
 
-    // Save invite in DB
     await Invite.create({
       senderId: req.user.id,
       recipientEmail: toEmail,
@@ -76,13 +73,11 @@ router.post('/invite-email', authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Handle accept/decline link clicks
 router.get('/respond/:token/:action', async (req, res) => {
   const { token, action } = req.params;
 
   try {
     const invite = await Invite.findOne({ token });
-
     if (!invite) return res.status(404).send('Invalid or expired invitation.');
 
     if (invite.status !== 'pending') {
@@ -90,7 +85,6 @@ router.get('/respond/:token/:action', async (req, res) => {
     }
 
     const recipient = await User.findOne({ email: invite.recipientEmail });
-
     if (!recipient) {
       return res.send("⚠️ You're not registered. Please sign up to accept the invite.");
     }
@@ -127,7 +121,6 @@ router.get('/respond/:token/:action', async (req, res) => {
   }
 });
 
-// ✅ Invite registered users to chat (Socket-based)
 router.post('/invite', authenticateToken, async (req, res) => {
   const { email, senderEmail, senderName } = req.body;
 
@@ -150,7 +143,6 @@ router.post('/invite', authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Accept friend invite (used via frontend socket or private invite)
 router.put('/accept', authenticateToken, async (req, res) => {
   const { fromUserId } = req.body;
   const toUserId = req.user.id;
@@ -177,7 +169,6 @@ router.put('/accept', authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Get all friends
 router.get('/:userId', authenticateToken, async (req, res) => {
   const userId = req.params.userId;
   try {
