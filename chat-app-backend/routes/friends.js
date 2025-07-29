@@ -2,20 +2,22 @@ const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
 
 const User = require('../models/User');
 const Friend = require('../models/Friend');
+const Invite = require('../models/Invite'); // <-- Add this
 
 // ✅ Gmail SMTP configuration from environment variables
 const transporter = nodemailer.createTransport({
   service: 'Gmail',
   auth: {
-    user: process.env.SMTP_USER, // Your chat app Gmail (e.g., chatme.app@gmail.com)
-    pass: process.env.SMTP_PASS, // App Password from Google
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
   },
 });
 
-// ✅ Middleware to verify JWT token (optional if protected route)
+// ✅ Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -28,8 +30,8 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ✅ Invite via email
-router.post('/invite-email', async (req, res) => {
+// ✅ Invite via email with accept/decline links
+router.post('/invite-email', authenticateToken, async (req, res) => {
   const { toEmail, senderName, senderEmail } = req.body;
 
   if (!toEmail || !senderName || !senderEmail) {
@@ -37,19 +39,32 @@ router.post('/invite-email', async (req, res) => {
   }
 
   try {
+    const token = uuidv4();
+
+    // Save invite in DB
+    await Invite.create({
+      senderId: req.user.id,
+      recipientEmail: toEmail,
+      token,
+    });
+
+    const acceptUrl = `http://localhost:5000/api/friends/respond/${token}/accept`;
+    const declineUrl = `http://localhost:5000/api/friends/respond/${token}/decline`;
+
     const mailOptions = {
-      from: `"Chatme" <${process.env.SMTP_USER}>`, // From app email
+      from: `"Chatme" <${process.env.SMTP_USER}>`,
       to: toEmail,
-      subject: `${senderName} invited you to Chatme! 🎉`,
-      text: `Hi there,
-
-Your friend ${senderName} (${senderEmail}) has invited you to join Chatme — a fast and fun way to chat with friends.
-
-Click below to join:
-https://yourchatmewebsite.com
-
-See you soon!
-– The Chatme Team`,
+      subject: `${senderName} invited you to Chatme!`,
+      html: `
+        <p>${senderName} (${senderEmail}) invited you to join <strong>Chatme</strong>!</p>
+        <p>Click below to respond:</p>
+        <p>
+          <a href="${acceptUrl}">✅ Accept</a> &nbsp;&nbsp;
+          <a href="${declineUrl}">❌ Decline</a>
+        </p>
+        <br />
+        <p>See you on <a href="https://yourchatmewebsite.com">Chatme</a> 💬</p>
+      `,
     };
 
     await transporter.sendMail(mailOptions);
@@ -61,7 +76,58 @@ See you soon!
   }
 });
 
-// ✅ Invite registered users to chat (optional: WebSocket or database invite)
+// ✅ Handle accept/decline link clicks
+router.get('/respond/:token/:action', async (req, res) => {
+  const { token, action } = req.params;
+
+  try {
+    const invite = await Invite.findOne({ token });
+
+    if (!invite) return res.status(404).send('Invalid or expired invitation.');
+
+    if (invite.status !== 'pending') {
+      return res.send(`This invitation has already been ${invite.status}.`);
+    }
+
+    const recipient = await User.findOne({ email: invite.recipientEmail });
+
+    if (!recipient) {
+      return res.send("⚠️ You're not registered. Please sign up to accept the invite.");
+    }
+
+    if (action === 'accept') {
+      invite.status = 'accepted';
+      await invite.save();
+
+      const alreadyFriends = await Friend.findOne({
+        $or: [
+          { user1: invite.senderId, user2: recipient._id },
+          { user1: recipient._id, user2: invite.senderId },
+        ],
+      });
+
+      if (!alreadyFriends) {
+        const newFriend = new Friend({ user1: invite.senderId, user2: recipient._id });
+        await newFriend.save();
+      }
+
+      return res.send("✅ Invitation accepted! You're now friends on Chatme.");
+    }
+
+    if (action === 'decline') {
+      invite.status = 'declined';
+      await invite.save();
+      return res.send("❌ Invitation declined.");
+    }
+
+    return res.status(400).send("Invalid action.");
+  } catch (err) {
+    console.error("Respond error:", err);
+    res.status(500).send("Server error.");
+  }
+});
+
+// ✅ Invite registered users to chat (Socket-based)
 router.post('/invite', authenticateToken, async (req, res) => {
   const { email, senderEmail, senderName } = req.body;
 
@@ -77,7 +143,6 @@ router.post('/invite', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Optionally: Store invite or notify with Socket.IO elsewhere
     return res.json({ message: 'Chat invite logic handled (via socket or DB)' });
   } catch (err) {
     console.error('Chat invite error:', err);
@@ -85,13 +150,12 @@ router.post('/invite', authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Accept friend invite (triggered on client accept)
+// ✅ Accept friend invite (used via frontend socket or private invite)
 router.put('/accept', authenticateToken, async (req, res) => {
   const { fromUserId } = req.body;
   const toUserId = req.user.id;
 
   try {
-    // Avoid duplicates
     const alreadyFriends = await Friend.findOne({
       $or: [
         { user1: fromUserId, user2: toUserId },
@@ -113,7 +177,7 @@ router.put('/accept', authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Get all friends of a user
+// ✅ Get all friends
 router.get('/:userId', authenticateToken, async (req, res) => {
   const userId = req.params.userId;
   try {
@@ -121,10 +185,8 @@ router.get('/:userId', authenticateToken, async (req, res) => {
       $or: [{ user1: userId }, { user2: userId }],
     }).populate(['user1', 'user2']);
 
-    const friends = friendships.map((friendship) =>
-      friendship.user1._id.toString() === userId
-        ? friendship.user2
-        : friendship.user1
+    const friends = friendships.map((f) =>
+      f.user1._id.toString() === userId ? f.user2 : f.user1
     );
 
     res.json({ friends });
