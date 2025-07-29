@@ -7,4 +7,4 @@ const inviteSchema = new mongoose.Schema({
   token: { type: String, required: true }, // Unique token for email link
 }, { timestamps: true });
 
-module.exports = mongoose.model("Invite", inviteSchema);
+module.exports = mongoose.model("Invites", inviteSchema);
