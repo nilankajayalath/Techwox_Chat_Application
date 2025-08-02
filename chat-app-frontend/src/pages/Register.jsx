@@ -25,7 +25,7 @@ function Register() {
 
       setSuccessMessage("✅ Registration successful! Redirecting...");
       setTimeout(() => {
-        window.location.href = "/";
+        window.location.href = "/login";
       }, 1500); // 1.5 seconds delay before redirect
 
     } catch (error) {
